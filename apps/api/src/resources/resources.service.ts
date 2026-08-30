@@ -45,7 +45,7 @@ export class ResourcesService {
       if (dto.year) clauses.push(Prisma.sql`r."publicationYear" = ${dto.year}`);
       if (dto.department)
         clauses.push(Prisma.sql`r."department" ILIKE ${`%${dto.department}%`}`);
-      const vector = Prisma.sql`to_tsvector('english', coalesce(r."title", '') || ' ' || coalesce(r."author", '') || ' ' || coalesce(r."abstract", '') || ' ' || coalesce(array_to_string(r."tags", ' '), ''))`;
+      const vector = Prisma.sql`to_tsvector('english', coalesce(r."title", '') || ' ' || coalesce(r."author", '') || ' ' || coalesce(r."abstract", '') || ' ' || coalesce(public.immutable_text_array_to_string(r."tags", ' '), ''))`;
       clauses.push(
         Prisma.sql`${vector} @@ websearch_to_tsquery('english', ${query})`,
       );

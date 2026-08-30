@@ -1,9 +1,28 @@
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL, make_url
 
 from .config import settings
+
+
+SCHEMA_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def psycopg_connection(database_url: str) -> tuple[URL, dict[str, str]]:
+    """Translate Prisma's PostgreSQL URL options into psycopg connection options."""
+    url = make_url(database_url)
+    schema = url.query.get("schema")
+    query = {key: value for key, value in url.query.items() if key != "schema"}
+    url = url.set(drivername="postgresql+psycopg", query=query)
+
+    if schema is None:
+        return url, {}
+    if not isinstance(schema, str) or not SCHEMA_NAME_PATTERN.fullmatch(schema):
+        raise ValueError("DATABASE_URL schema must be a valid unquoted PostgreSQL identifier")
+    return url, {"options": f"-csearch_path={schema}"}
 
 
 @dataclass(frozen=True)
@@ -32,8 +51,13 @@ class Interaction:
 
 class Repository:
     def __init__(self) -> None:
-        database_url = settings.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
-        self.engine = create_engine(database_url, pool_pre_ping=True, pool_size=5)
+        database_url, connect_args = psycopg_connection(settings.database_url)
+        self.engine = create_engine(
+            database_url,
+            connect_args=connect_args,
+            pool_pre_ping=True,
+            pool_size=5,
+        )
 
     def catalog(self) -> list[CatalogItem]:
         query = text(

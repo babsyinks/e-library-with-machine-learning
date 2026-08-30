@@ -14,12 +14,14 @@ The repository contains:
 ## Quick start
 
 1. Install Docker Desktop (or Docker Engine with Compose).
-2. Copy `.env.local.example` to `.env.local`.
-3. Run `docker compose --env-file .env.local -f docker-compose.local.yml up --build`.
-4. Open [http://localhost:3000](http://localhost:3000).
+2. From the repository root, run
+   `docker compose --env-file .env.local -f docker-compose.local.yml up --build`.
+3. Wait until the `web` service is reported healthy, then open
+   [http://localhost:3000](http://localhost:3000).
 
-The database is migrated and seeded automatically. Demo accounts and a fuller
-walkthrough are in [`docs/LOCAL_SETUP.md`](docs/LOCAL_SETUP.md).
+No host installation of Node.js, Python, PostgreSQL, MinIO or ClamAV is needed.
+The database is migrated and seeded automatically. Demo accounts, prerequisites
+and a fuller walkthrough are in [`docs/LOCAL_SETUP.md`](docs/LOCAL_SETUP.md).
 
 ## Documentation
 

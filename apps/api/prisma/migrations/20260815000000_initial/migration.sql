@@ -138,9 +138,22 @@ CREATE INDEX "Resource_resourceType_publicationYear_idx" ON "Resource"("resource
 CREATE INDEX "Resource_uploadedById_idx" ON "Resource"("uploadedById");
 CREATE INDEX "Resource_viewCount_downloadCount_idx" ON "Resource"("viewCount", "downloadCount");
 
+-- PostgreSQL marks the polymorphic array_to_string(anyarray, text) function as
+-- STABLE because arbitrary array element output functions may not be immutable.
+-- Resource tags are text[], for which joining is deterministic, so expose that
+-- narrower operation as IMMUTABLE for use by the full-text expression index.
+CREATE FUNCTION public.immutable_text_array_to_string(TEXT[], TEXT)
+RETURNS TEXT
+LANGUAGE SQL
+IMMUTABLE
+PARALLEL SAFE
+RETURNS NULL ON NULL INPUT
+SET search_path = pg_catalog
+AS 'SELECT pg_catalog.array_to_string($1, $2)';
+
 -- This expression index supports ranked full-text catalog search at the target 50k-resource scale.
 CREATE INDEX "Resource_search_document_idx" ON "Resource" USING GIN (
-  to_tsvector('english', coalesce("title", '') || ' ' || coalesce("author", '') || ' ' || coalesce("abstract", '') || ' ' || coalesce(array_to_string("tags", ' '), ''))
+  to_tsvector('english', coalesce("title", '') || ' ' || coalesce("author", '') || ' ' || coalesce("abstract", '') || ' ' || coalesce(public.immutable_text_array_to_string("tags", ' '), ''))
 );
 
 CREATE INDEX "ResourceVersion_resourceId_uploadedAt_idx" ON "ResourceVersion"("resourceId", "uploadedAt");

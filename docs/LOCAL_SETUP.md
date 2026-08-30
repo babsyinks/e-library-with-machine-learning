@@ -2,13 +2,20 @@
 
 ## Recommended: Docker Compose
 
-Prerequisites: Docker Engine/Desktop with Compose v2 and at least 6 GB of free
-memory (ClamAV signature loading is the heaviest service).
+Prerequisites: Docker Engine/Desktop with Compose v2, at least 6 GB of memory
+available to Docker, approximately 10 GB of free disk space for a first build,
+an internet connection for the first image download, and host ports 3000, 4000,
+9000 and 9001 available. You do not need host installations of Node.js, Python,
+PostgreSQL, MinIO or ClamAV.
 
 ```bash
-cp .env.local.example .env.local
 docker compose --env-file .env.local -f docker-compose.local.yml up --build
 ```
+
+The checked-in `.env.local` contains local demo settings so a newly cloned or
+unzipped copy starts with that single command. It must not be reused for an
+internet-accessible or production deployment. Use `.env.local.example` as the
+template if you intentionally replace it.
 
 Open:
 
@@ -44,6 +51,9 @@ docker compose --env-file .env.local -f docker-compose.local.yml logs api
 docker compose --env-file .env.local -f docker-compose.local.yml down
 docker compose --env-file .env.local -f docker-compose.local.yml up
 ```
+
+After the initial build, later starts do not require `--build` unless source or
+dependency files changed.
 
 Named volumes preserve the database, objects and antivirus definitions. To
 avoid accidental data loss, this guide does not include a volume-deletion

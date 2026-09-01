@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  STAFF
+  LIBRARIAN
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum ResourceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum ResourceType {
+  EBOOK
+  THESIS
+  JOURNAL_ARTICLE
+  PAST_QUESTION
+  COURSE_MATERIAL
+}
+
+enum EventType {
+  VIEW
+  DOWNLOAD
+}
+
+enum TokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model User {
+  id               String              @id @default(uuid()) @db.Uuid
+  name             String              @db.VarChar(120)
+  email            String              @unique @db.VarChar(255)
+  passwordHash     String
+  role             Role                @default(STUDENT)
+  status           UserStatus          @default(ACTIVE)
+  department       String?             @db.VarChar(120)
+  emailVerifiedAt  DateTime?
+  refreshTokenHash String?
+  lastLoginAt      DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  uploads          Resource[]          @relation("Uploader")
+  reviewedResources Resource[]         @relation("Reviewer")
+  interactions     InteractionLog[]
+  tokens           AuthToken[]
+  auditEntries     AuditLog[]           @relation("AuditActor")
+  savedResources   SavedResource[]
+  recommendations  RecommendationCache[]
+
+  @@index([role, status])
+  @@index([department])
+}
+
+model Category {
+  id        String     @id @default(uuid()) @db.Uuid
+  name      String     @db.VarChar(100)
+  slug      String     @unique @db.VarChar(120)
+  parentId  String?    @db.Uuid
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Category[] @relation("CategoryTree")
+  resources Resource[]
+
+  @@unique([name, parentId])
+  @@index([parentId])
+}
+
+model Resource {
+  id              String          @id @default(uuid()) @db.Uuid
+  title           String          @db.VarChar(300)
+  author          String          @db.VarChar(220)
+  abstract        String          @db.Text
+  tags            String[]
+  publicationYear Int
+  resourceType    ResourceType
+  department      String?         @db.VarChar(120)
+  status          ResourceStatus  @default(PENDING)
+  rejectionReason String?         @db.VarChar(500)
+  categoryId      String          @db.Uuid
+  uploadedById    String          @db.Uuid
+  reviewedById    String?         @db.Uuid
+  reviewedAt      DateTime?
+  currentVersion  Int             @default(1)
+  viewCount       Int             @default(0)
+  downloadCount   Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  category        Category        @relation(fields: [categoryId], references: [id])
+  uploadedBy      User            @relation("Uploader", fields: [uploadedById], references: [id])
+  reviewedBy      User?           @relation("Reviewer", fields: [reviewedById], references: [id])
+  versions        ResourceVersion[]
+  interactions    InteractionLog[]
+  savedBy         SavedResource[]
+  recommendations RecommendationCache[]
+
+  @@index([status, createdAt])
+  @@index([categoryId, status])
+  @@index([resourceType, publicationYear])
+  @@index([uploadedById])
+  @@index([viewCount, downloadCount])
+}
+
+model ResourceVersion {
+  id           String   @id @default(uuid()) @db.Uuid
+  resourceId   String   @db.Uuid
+  version      Int
+  objectKey    String   @db.VarChar(700)
+  originalName String   @db.VarChar(255)
+  mimeType     String   @db.VarChar(100)
+  sizeBytes    Int
+  checksum     String   @db.VarChar(64)
+  uploadedAt   DateTime @default(now())
+  resource     Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([resourceId, version])
+  @@index([resourceId, uploadedAt])
+}
+
+model InteractionLog {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  resourceId String    @db.Uuid
+  eventType  EventType
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resource   Resource  @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([resourceId, eventType, createdAt])
+}
+
+model SearchLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String?  @db.Uuid
+  query       String   @db.VarChar(300)
+  resultCount Int
+  createdAt   DateTime @default(now())
+
+  @@index([resultCount, createdAt])
+  @@index([userId, createdAt])
+}
+
+model SavedResource {
+  userId     String   @db.Uuid
+  resourceId String   @db.Uuid
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@id([userId, resourceId])
+  @@index([userId, createdAt])
+}
+
+model AuthToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique @db.VarChar(64)
+  type      TokenType
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, expiresAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  action     String   @db.VarChar(120)
+  entityType String   @db.VarChar(80)
+  entityId   String?  @db.VarChar(100)
+  metadata   Json?
+  ipAddress  String?  @db.VarChar(64)
+  createdAt  DateTime @default(now())
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model RecommendationCache {
+  userId      String   @db.Uuid
+  resourceId  String   @db.Uuid
+  score       Float
+  explanation String?  @db.VarChar(300)
+  generatedAt DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@id([userId, resourceId])
+  @@index([userId, score])
+}

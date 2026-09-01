@@ -1,0 +1,42 @@
+name: Deploy to VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Image/version label used by Compose
+        required: true
+        default: latest
+  push:
+    branches: [main]
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+      - name: Pull, build, migrate and restart
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          APP_VERSION: ${{ inputs.version || github.sha }}
+        run: |
+          ssh "$VPS_USER@$VPS_HOST" "cd '$DEPLOY_PATH' && git fetch origin main && git checkout main && git pull --ff-only origin main && APP_VERSION='$APP_VERSION' docker compose --env-file .env.production -f docker-compose.production.yml up --build -d --remove-orphans"
+          ssh "$VPS_USER@$VPS_HOST" "cd '$DEPLOY_PATH' && docker compose --env-file .env.production -f docker-compose.production.yml ps"

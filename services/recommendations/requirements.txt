@@ -6,6 +6,6 @@ numpy==2.3.2
 pandas==2.3.2
 SQLAlchemy==2.0.43
 psycopg[binary]==3.2.9
-pydantic-settings==2.10.1
+pydantic-settings==2.15.0
 pytest==8.4.1
 httpx==0.28.1

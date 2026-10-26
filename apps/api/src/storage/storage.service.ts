@@ -9,12 +9,17 @@ import {
   CreateBucketCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createHash, randomUUID } from "crypto";
-import { extname } from "path";
+import { execFile as execFileCallback } from "child_process";
+import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { extname, join } from "path";
+import { promisify } from "util";
 import { MalwareScannerService } from "./malware-scanner.service";
 
 const ALLOWED: Record<
@@ -36,6 +41,7 @@ const ALLOWED: Record<
       b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04,
   },
 };
+const execFile = promisify(execFileCallback);
 
 @Injectable()
 export class StorageService implements OnModuleInit {
@@ -104,6 +110,14 @@ export class StorageService implements OnModuleInit {
         },
       }),
     );
+    const storedObject = await this.client.send(
+      new HeadObjectCommand({ Bucket: this.bucket, Key: objectKey }),
+    );
+    if (storedObject.ContentLength !== file.size) {
+      throw new Error(
+        `Stored resource size mismatch: expected ${file.size} bytes, received ${storedObject.ContentLength ?? "unknown"}`,
+      );
+    }
     return {
       objectKey,
       originalName: file.originalname,
@@ -127,6 +141,53 @@ export class StorageService implements OnModuleInit {
       }),
       { expiresIn: 5 * 60 },
     );
+  }
+
+  async signedPdfPreviewUrl(
+    objectKey: string,
+    resourceId: string,
+    version: number,
+    originalName: string,
+  ) {
+    const previewKey = `previews/${resourceId}/v${version}.pdf`;
+    const source = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: objectKey }),
+    );
+    if (!source.Body) throw new Error("Stored PDF has no content");
+    const sourceBytes = await source.Body.transformToByteArray();
+    const directory = await mkdtemp(join(tmpdir(), "scholarshelf-preview-"));
+    const inputPath = join(directory, "source.pdf");
+    const outputPath = join(directory, "preview.pdf");
+    try {
+      await writeFile(inputPath, sourceBytes);
+      const { stdout } = await execFile("qpdf", ["--show-npages", inputPath]);
+      const pageCount = Number.parseInt(stdout.trim(), 10);
+      if (!Number.isInteger(pageCount) || pageCount < 1) {
+        throw new Error("Could not determine the PDF page count");
+      }
+      const previewPages = Math.min(pageCount, 5);
+      await execFile("qpdf", [
+        inputPath,
+        "--pages",
+        ".",
+        `1-${previewPages}`,
+        "--",
+        outputPath,
+      ]);
+      const previewBytes = await readFile(outputPath);
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: previewKey,
+          Body: previewBytes,
+          ContentType: "application/pdf",
+          Metadata: { originalName: encodeURIComponent(originalName) },
+        }),
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+    return this.signedReadUrl(previewKey, originalName, true);
   }
 
   private validate(file: Express.Multer.File) {

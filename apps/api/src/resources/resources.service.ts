@@ -407,12 +407,20 @@ export class ResourcesService {
         }),
       ]);
     }
+    const url = preview && current.mimeType === "application/pdf"
+      ? await this.storage.signedPdfPreviewUrl(
+          current.objectKey,
+          id,
+          current.version,
+          current.originalName,
+        )
+      : await this.storage.signedReadUrl(
+          current.objectKey,
+          current.originalName,
+          preview,
+        );
     return {
-      url: await this.storage.signedReadUrl(
-        current.objectKey,
-        current.originalName,
-        preview,
-      ),
+      url,
       expiresInSeconds: 300,
     };
   }

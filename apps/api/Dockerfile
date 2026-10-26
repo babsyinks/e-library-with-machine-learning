@@ -13,7 +13,7 @@ COPY apps/api apps/api
 RUN pnpm --filter @scholarshelf/api prisma:generate && pnpm --filter @scholarshelf/api build
 
 FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS runner
-RUN corepack enable && apk add --no-cache dumb-init
+RUN corepack enable && apk add --no-cache dumb-init qpdf
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules

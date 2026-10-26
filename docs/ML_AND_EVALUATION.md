@@ -61,9 +61,7 @@ precision@k = relevant recommended items / k
 recall@k    = relevant recommended items / held-out relevant items
 ```
 
-The response reports the same metrics for a global popularity baseline. A
-thesis claim should say the method is useful only if its test result materially
-beats that baseline on enough users.
+The response reports the same metrics for a global popularity baseline.
 
 ## Synthetic data, if required
 

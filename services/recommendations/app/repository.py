@@ -29,16 +29,49 @@ def psycopg_connection(database_url: str) -> tuple[URL, dict[str, str]]:
 class CatalogItem:
     resource_id: str
     title: str
+    author: str
     abstract: str
     tags: list[str]
     category: str
     department: str | None
+    resource_type: str
     popularity: int
 
     @property
     def document(self) -> str:
-        # Repeating the title once gives a transparent, modest weight to the strongest signal.
-        return " ".join([self.title, self.title, self.abstract, *self.tags, self.category])
+        return " ".join(
+            [
+                self.title,
+                self.title,
+                *self.tags,
+                *self.tags,
+                self.author,
+                self.author,
+                self.category,
+                self.department or "",
+                self.resource_type.replace("_", " ").lower(),
+                self.abstract,
+            ]
+        )
+
+    @property
+    def similarity_document(self) -> str:
+        return " ".join(
+            [
+                self.title,
+                self.title,
+                self.title,
+                *self.tags,
+                *self.tags,
+                *self.tags,
+                self.author,
+                self.author,
+                self.category,
+                self.category,
+                self.department or "",
+                self.resource_type.replace("_", " ").lower(),
+            ]
+        )
 
 
 @dataclass(frozen=True)
@@ -62,8 +95,8 @@ class Repository:
     def catalog(self) -> list[CatalogItem]:
         query = text(
             '''
-            SELECT r.id::text AS resource_id, r.title, r.abstract, r.tags,
-                   c.name AS category, r.department,
+            SELECT r.id::text AS resource_id, r.title, r.author, r.abstract, r.tags,
+                   c.name AS category, r.department, r."resourceType"::text AS resource_type,
                    (r."viewCount" + r."downloadCount" * 2) AS popularity
             FROM "Resource" r
             JOIN "Category" c ON c.id = r."categoryId"

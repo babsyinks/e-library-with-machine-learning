@@ -78,8 +78,19 @@ export class RecommendationsService {
       return this.prisma.resource.findMany({
         where: {
           status: ResourceStatus.APPROVED,
-          categoryId: exists.categoryId,
           id: { not: resourceId },
+          OR: [
+            ...(exists.tags.length
+              ? [{ tags: { hasSome: exists.tags } }]
+              : []),
+            { author: { equals: exists.author, mode: "insensitive" } },
+            {
+              AND: [
+                { categoryId: exists.categoryId },
+                { resourceType: exists.resourceType },
+              ],
+            },
+          ],
         },
         include: { category: true },
         orderBy: { viewCount: "desc" },

@@ -55,11 +55,3 @@ short-lived signed URLs.
 **What does the system not establish?** A click does not prove learning, cosine
 similarity does not understand all semantic relationships, and offline metrics
 do not replace a user study. These are stated limitations, not hidden claims.
-
-## Honest future work
-
-- Controlled user study measuring perceived relevance and task completion.
-- Hybrid collaborative/content ranking after sufficient real interaction volume.
-- Synonym-aware embeddings with an explainability layer, compared against this baseline.
-- Institutional SSO, retention automation and accessibility audit.
-- Course/semester context and deliberate diversity constraints to reduce filter bubbles.

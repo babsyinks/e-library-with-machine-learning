@@ -44,6 +44,3 @@
 - Back up and restore-test PostgreSQL and MinIO together.
 - Run a dependency and container scan before the final public deployment.
 - Document institutional retention rules for interaction logs and archived files.
-
-The system is a strong thesis prototype, not a substitute for a formal
-penetration test or the institution's legal/privacy review.

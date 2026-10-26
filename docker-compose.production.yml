@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z-distroless
     command: server /data --console-address ":9001"
     env_file: .env.production
     environment:

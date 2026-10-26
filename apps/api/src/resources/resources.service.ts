@@ -273,6 +273,33 @@ export class ResourcesService {
     };
   }
 
+  async manage(page = 1, limit = 50) {
+    const take = Math.min(Math.max(limit, 1), 50);
+    const currentPage = Math.max(page, 1);
+    const where: Prisma.ResourceWhereInput = {
+      status: { not: ResourceStatus.ARCHIVED },
+    };
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.resource.findMany({
+        where,
+        include: cardInclude,
+        orderBy: { updatedAt: "desc" },
+        skip: (currentPage - 1) * take,
+        take,
+      }),
+      this.prisma.resource.count({ where }),
+    ]);
+    return {
+      items,
+      pagination: {
+        page: currentPage,
+        limit: take,
+        total,
+        pages: Math.ceil(total / take),
+      },
+    };
+  }
+
   async approve(reviewer: AuthenticatedUser, id: string, ipAddress?: string) {
     const existing = await this.prisma.resource.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("Resource not found");
@@ -334,8 +361,8 @@ export class ResourcesService {
     if (!resource) throw new NotFoundException("Resource not found");
     const allowed =
       user.role === Role.ADMIN ||
-      (resource.uploadedById === user.id &&
-        resource.status === ResourceStatus.PENDING);
+      user.role === Role.LIBRARIAN ||
+      resource.uploadedById === user.id;
     if (!allowed)
       throw new ForbiddenException("You cannot remove this resource");
     await this.prisma.resource.update({

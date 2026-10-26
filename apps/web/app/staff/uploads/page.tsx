@@ -2,14 +2,19 @@
 
 import {
   BarChart3,
+  ChevronLeft,
+  ChevronRight,
   Check,
+  FileCheck2,
   FilePlus2,
   RefreshCw,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { Toast } from "@/components/toast";
 import { useAuth } from "@/components/auth-provider";
@@ -31,9 +36,13 @@ export default function UploadsPage() {
   const { user } = useAuth();
   const [categories, setCategories] = useState<Category[]>([]);
   const [items, setItems] = useState<Resource[]>();
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File>();
   const [analytics, setAnalytics] = useState<ResourceAnalytics>();
+  const [resourceToDelete, setResourceToDelete] = useState<Resource>();
   const [toast, setToast] = useState<{
     message: string;
     kind: "success" | "error";
@@ -44,15 +53,18 @@ export default function UploadsPage() {
   const load = useCallback(async () => {
     if (!user) return;
     const path = canReview
-      ? "/resources/review-queue?limit=50"
-      : "/resources/mine?limit=50";
+      ? `/resources/manage?page=${page}&limit=50`
+      : `/resources/mine?page=${page}&limit=50`;
     const [queue, categoryResult] = await Promise.all([
       apiFetch<Paginated<Resource>>(path),
       apiFetch<Category[]>("/categories"),
     ]);
     setItems(queue.items);
+    const lastPage = Math.max(queue.pagination.pages, 1);
+    setPages(lastPage);
+    if (page > lastPage) setPage(lastPage);
     setCategories(categoryResult);
-  }, [canReview, user]);
+  }, [canReview, page, user]);
 
   useEffect(() => {
     void load();
@@ -60,6 +72,7 @@ export default function UploadsPage() {
 
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
     setBusy(true);
     try {
       const data = new FormData(event.currentTarget);
@@ -78,8 +91,16 @@ export default function UploadsPage() {
         kind: "success",
       });
       setShowForm(false);
-      event.currentTarget.reset();
-      await load();
+      setSelectedFile(undefined);
+      form.reset();
+      try {
+        await load();
+      } catch {
+        setToast({
+          message: "Resource uploaded successfully, but the list could not be refreshed.",
+          kind: "success",
+        });
+      }
     } catch (cause) {
       setToast({
         message: cause instanceof ApiError ? cause.message : "Upload failed",
@@ -119,6 +140,28 @@ export default function UploadsPage() {
     }
   }
 
+  async function removeResource(resource: Resource) {
+    try {
+      await apiFetch(`/resources/${resource.id}`, { method: "DELETE" });
+      setToast({
+        message: "Resource deleted from the library.",
+        kind: "success",
+      });
+      try {
+        await load();
+      } catch {
+        setToast({
+          message: "Resource deleted, but the list could not be refreshed.",
+          kind: "success",
+        });
+      }
+    } catch (cause) {
+      throw new Error(
+        cause instanceof ApiError ? cause.message : "Could not delete resource",
+      );
+    }
+  }
+
   async function showAnalytics(resourceId: string) {
     const result = await apiFetch<ResourceAnalytics>(
       `/analytics/resources/${resourceId}?days=30`,
@@ -129,10 +172,10 @@ export default function UploadsPage() {
   return (
     <AppShell
       roles={["STAFF", "LIBRARIAN", "ADMIN"]}
-      title={canReview ? "Curation queue" : "Your uploads"}
+      title={canReview ? "Resource management" : "Your uploads"}
       description={
         canReview
-          ? "Review metadata and release trusted resources into the catalog."
+          ? "Manage library resources and review pending submissions."
           : "Upload and manage academic material contributed to the institution."
       }
       action={
@@ -228,23 +271,44 @@ export default function UploadsPage() {
               <input name="department" defaultValue={user?.department || ""} />
             </label>
           </div>
-          <label className="file-drop">
-            <input required name="file" type="file" accept=".pdf,.docx,.epub" />
-            <Upload />
-            <strong>Select the resource file</strong>
+          <label className={`file-drop${selectedFile ? " has-file" : ""}`}>
+            <input
+              required
+              name="file"
+              type="file"
+              accept=".pdf,.docx,.epub"
+              onChange={(event) =>
+                setSelectedFile(event.currentTarget.files?.[0])
+              }
+            />
+            {selectedFile ? <FileCheck2 /> : <Upload />}
+            <strong>
+              {selectedFile ? selectedFile.name : "Select the resource file"}
+            </strong>
+            {selectedFile && (
+              <span className="file-drop-ready">
+                <Check size={15} aria-hidden="true" />
+                Ready to upload · {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
+              </span>
+            )}
             <small>
               The API verifies its extension, declared MIME type, file
               signature, size and malware scan.
             </small>
+            <small>Accepted formats: PDF, DOCX, EPUB</small>
+            <small>Maximum file size: 25MB</small>
           </label>
           <div className="form-actions">
-            <button className="button" disabled={busy}>
+            <button className="button" disabled={busy} type="submit">
               {busy ? "Scanning and uploading…" : "Upload for approval"}
             </button>
             <button
               type="button"
               className="button button-ghost"
-              onClick={() => setShowForm(false)}
+              onClick={() => {
+                setShowForm(false);
+                setSelectedFile(undefined);
+              }}
             >
               Cancel
             </button>
@@ -256,10 +320,10 @@ export default function UploadsPage() {
         <div className="management-head">
           <div>
             <span className="eyebrow">
-              {canReview ? "Awaiting a decision" : "Submission history"}
+              {canReview ? "Library collection" : "Submission history"}
             </span>
             <h2>
-              {canReview ? "Pending resources" : "Resources you contributed"}
+              {canReview ? "Manage resources" : "Resources you contributed"}
             </h2>
           </div>
           <button
@@ -285,6 +349,7 @@ export default function UploadsPage() {
                   <th>Status</th>
                   <th>Engagement</th>
                   {canReview && <th>Decision</th>}
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -325,22 +390,34 @@ export default function UploadsPage() {
                     </td>
                     {canReview && (
                       <td>
-                        <div className="row-actions">
-                          <button
-                            className="approve"
-                            onClick={() => void review(resource.id, true)}
-                          >
-                            <Check size={15} /> Approve
-                          </button>
-                          <button
-                            className="reject"
-                            onClick={() => void review(resource.id, false)}
-                          >
-                            <X size={15} /> Reject
-                          </button>
-                        </div>
+                        {resource.status === "PENDING" ? (
+                          <div className="row-actions">
+                            <button
+                              className="approve"
+                              onClick={() => void review(resource.id, true)}
+                            >
+                              <Check size={15} /> Approve
+                            </button>
+                            <button
+                              className="reject"
+                              onClick={() => void review(resource.id, false)}
+                            >
+                              <X size={15} /> Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
                       </td>
                     )}
+                    <td>
+                      <button
+                        className="button button-danger"
+                        onClick={() => setResourceToDelete(resource)}
+                      >
+                        <Trash2 size={15} /> Delete
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -348,20 +425,48 @@ export default function UploadsPage() {
           </div>
         ) : (
           <EmptyState
-            title={canReview ? "The queue is clear" : "No uploads yet"}
+            title={canReview ? "No resources to manage" : "No uploads yet"}
             message={
               canReview
-                ? "New staff submissions will appear here for review."
+                ? "Resource submissions will appear here."
                 : "Contribute the first resource when you are ready."
             }
           />
         )}
+        {items?.length && pages > 1 ? (
+          <nav className="pagination" aria-label="Resource pages">
+            <button
+              className="button button-secondary"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              <ChevronLeft size={16} /> Previous
+            </button>
+            <span>Page {page} of {pages}</span>
+            <button
+              className="button button-secondary"
+              disabled={page >= pages}
+              onClick={() => setPage(page + 1)}
+            >
+              Next <ChevronRight size={16} />
+            </button>
+          </nav>
+        ) : null}
       </section>
 
       {analytics && (
         <ResourceTrend
           data={analytics}
           onClose={() => setAnalytics(undefined)}
+        />
+      )}
+      {resourceToDelete && (
+        <ConfirmDialog
+          title="Delete this resource?"
+          description={`“${resourceToDelete.title}” will be archived and removed from the active library.`}
+          confirmLabel="Delete resource"
+          onConfirm={() => removeResource(resourceToDelete)}
+          onCancel={() => setResourceToDelete(undefined)}
         />
       )}
       {toast && <Toast {...toast} onClose={() => setToast(undefined)} />}

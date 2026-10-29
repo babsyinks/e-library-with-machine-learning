@@ -51,12 +51,14 @@ export async function runSeed(prisma: PrismaClient) {
 
   if (process.env.SEED_DEMO_DATA === "false") return;
 
+  const domain = process.env.INSTITUTION_EMAIL_DOMAIN ?? "example.edu";
+
   const student = await prisma.user.upsert({
-    where: { email: "student@example.edu" },
+    where: { email: `student@${domain}` },
     update: {},
     create: {
       name: "Ada Okafor",
-      email: "student@example.edu",
+      email: `student@${domain}`,
       passwordHash: await bcrypt.hash("StudentPass123!", 12),
       role: Role.STUDENT,
       department: "Computer Science",

@@ -1,9 +1,12 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Delete,
   Get,
   Param,
+  ParseIntPipe,
+  ParseBoolPipe,
   Patch,
   Post,
   Query,
@@ -57,6 +60,15 @@ export class ResourcesController {
     @Query("limit") limit = 30,
   ) {
     return this.resources.mine(user.id, page, limit);
+  }
+
+  @Roles(Role.LIBRARIAN, Role.ADMIN)
+  @Get("manage")
+  manage(
+    @Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query("limit", new DefaultValuePipe(50), ParseIntPipe) limit: number,
+  ) {
+    return this.resources.manage(page, limit);
   }
 
   @Get("saved")
@@ -126,7 +138,8 @@ export class ResourcesController {
   access(
     @CurrentUser() user: AuthenticatedUser,
     @Param("id") id: string,
-    @Query("preview") preview = false,
+    @Query("preview", new DefaultValuePipe(false), ParseBoolPipe)
+    preview: boolean,
   ) {
     return this.resources.access(user.id, id, preview);
   }
@@ -136,6 +149,7 @@ export class ResourcesController {
     return this.resources.toggleSaved(user.id, id);
   }
 
+  @Roles(Role.STAFF, Role.LIBRARIAN, Role.ADMIN)
   @Delete(":id")
   remove(
     @CurrentUser() user: AuthenticatedUser,

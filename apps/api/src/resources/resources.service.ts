@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { EventType, Prisma, ResourceStatus, Role } from "@prisma/client";
@@ -21,6 +22,8 @@ const cardInclude = {
 
 @Injectable()
 export class ResourcesService {
+  private readonly logger = new Logger(ResourcesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
@@ -33,54 +36,43 @@ export class ResourcesService {
     const skip = (dto.page - 1) * take;
 
     if (query) {
-      const clauses: Prisma.Sql[] = [
-        Prisma.sql`r."status" = 'APPROVED'::"ResourceStatus"`,
-      ];
-      if (dto.categoryId)
-        clauses.push(Prisma.sql`r."categoryId" = ${dto.categoryId}::uuid`);
-      if (dto.resourceType)
-        clauses.push(
-          Prisma.sql`r."resourceType" = ${dto.resourceType}::"ResourceType"`,
-        );
-      if (dto.year) clauses.push(Prisma.sql`r."publicationYear" = ${dto.year}`);
-      if (dto.department)
-        clauses.push(Prisma.sql`r."department" ILIKE ${`%${dto.department}%`}`);
-      const vector = Prisma.sql`to_tsvector('english', coalesce(r."title", '') || ' ' || coalesce(r."author", '') || ' ' || coalesce(r."abstract", '') || ' ' || coalesce(public.immutable_text_array_to_string(r."tags", ' '), ''))`;
-      clauses.push(
-        Prisma.sql`${vector} @@ websearch_to_tsquery('english', ${query})`,
-      );
-      const where = Prisma.join(clauses, " AND ");
-      const order =
-        dto.sort === ResourceSort.NEWEST
-          ? Prisma.sql`r."createdAt" DESC`
-          : dto.sort === ResourceSort.POPULAR
-            ? Prisma.sql`(r."viewCount" + r."downloadCount" * 2) DESC`
-            : Prisma.sql`ts_rank(${vector}, websearch_to_tsquery('english', ${query})) DESC, r."createdAt" DESC`;
-      const ids = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-        SELECT r.id FROM "Resource" r
-        WHERE ${where}
-        ORDER BY ${order}
-        LIMIT ${take} OFFSET ${skip}
-      `);
-      const countRows = await this.prisma.$queryRaw<
-        { count: bigint }[]
-      >(Prisma.sql`
-        SELECT count(*)::bigint AS count FROM "Resource" r WHERE ${where}
-      `);
-      const resources = ids.length
-        ? await this.prisma.resource.findMany({
-            where: { id: { in: ids.map((row) => row.id) } },
-            include: cardInclude,
-          })
-        : [];
-      const byId = new Map(
-        resources.map((resource) => [resource.id, resource]),
-      );
-      const items = ids.map((row) => byId.get(row.id)).filter(Boolean);
-      const total = Number(countRows[0]?.count ?? 0);
-      await this.prisma.searchLog.create({
-        data: { userId, query, resultCount: total },
-      });
+      const terms = [...new Set([query, ...query.split(/\s+/).filter(Boolean)])];
+      const where: Prisma.ResourceWhereInput = {
+        status: ResourceStatus.APPROVED,
+        ...(dto.categoryId ? { categoryId: dto.categoryId } : {}),
+        ...(dto.resourceType ? { resourceType: dto.resourceType } : {}),
+        ...(dto.year ? { publicationYear: dto.year } : {}),
+        ...(dto.department
+          ? { department: { contains: dto.department, mode: "insensitive" } }
+          : {}),
+        OR: [
+          { title: { contains: query, mode: "insensitive" } },
+          { author: { contains: query, mode: "insensitive" } },
+          { abstract: { contains: query, mode: "insensitive" } },
+          { tags: { hasSome: terms } },
+        ],
+      };
+      const orderBy: Prisma.ResourceOrderByWithRelationInput[] =
+        dto.sort === ResourceSort.POPULAR
+          ? [{ downloadCount: "desc" }, { viewCount: "desc" }]
+          : [{ createdAt: "desc" }];
+      const [items, total] = await this.prisma.$transaction([
+        this.prisma.resource.findMany({
+          where,
+          include: cardInclude,
+          orderBy,
+          skip,
+          take,
+        }),
+        this.prisma.resource.count({ where }),
+      ]);
+      try {
+        await this.prisma.searchLog.create({
+          data: { userId, query, resultCount: total },
+        });
+      } catch (error) {
+        this.logger.warn(`Could not record catalog search: ${String(error)}`);
+      }
       return {
         items,
         pagination: {
@@ -281,6 +273,33 @@ export class ResourcesService {
     };
   }
 
+  async manage(page = 1, limit = 50) {
+    const take = Math.min(Math.max(limit, 1), 50);
+    const currentPage = Math.max(page, 1);
+    const where: Prisma.ResourceWhereInput = {
+      status: { not: ResourceStatus.ARCHIVED },
+    };
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.resource.findMany({
+        where,
+        include: cardInclude,
+        orderBy: { updatedAt: "desc" },
+        skip: (currentPage - 1) * take,
+        take,
+      }),
+      this.prisma.resource.count({ where }),
+    ]);
+    return {
+      items,
+      pagination: {
+        page: currentPage,
+        limit: take,
+        total,
+        pages: Math.ceil(total / take),
+      },
+    };
+  }
+
   async approve(reviewer: AuthenticatedUser, id: string, ipAddress?: string) {
     const existing = await this.prisma.resource.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("Resource not found");
@@ -342,8 +361,8 @@ export class ResourcesService {
     if (!resource) throw new NotFoundException("Resource not found");
     const allowed =
       user.role === Role.ADMIN ||
-      (resource.uploadedById === user.id &&
-        resource.status === ResourceStatus.PENDING);
+      user.role === Role.LIBRARIAN ||
+      resource.uploadedById === user.id;
     if (!allowed)
       throw new ForbiddenException("You cannot remove this resource");
     await this.prisma.resource.update({
@@ -388,12 +407,20 @@ export class ResourcesService {
         }),
       ]);
     }
+    const url = preview && current.mimeType === "application/pdf"
+      ? await this.storage.signedPdfPreviewUrl(
+          current.objectKey,
+          id,
+          current.version,
+          current.originalName,
+        )
+      : await this.storage.signedReadUrl(
+          current.objectKey,
+          current.originalName,
+          preview,
+        );
     return {
-      url: await this.storage.signedReadUrl(
-        current.objectKey,
-        current.originalName,
-        preview,
-      ),
+      url,
       expiresInSeconds: 300,
     };
   }

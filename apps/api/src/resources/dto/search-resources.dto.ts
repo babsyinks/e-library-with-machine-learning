@@ -1,4 +1,5 @@
 import { ResourceType } from "@prisma/client";
+import { Type } from "class-transformer";
 import {
   IsEnum,
   IsInt,
@@ -31,6 +32,7 @@ export class SearchResourcesDto {
   resourceType?: ResourceType;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1400)
   year?: number;
@@ -45,11 +47,13 @@ export class SearchResourcesDto {
   sort: ResourceSort = ResourceSort.RELEVANCE;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   page = 1;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(50)

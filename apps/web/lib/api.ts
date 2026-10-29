@@ -78,16 +78,23 @@ export async function publicApi<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(`${SERVER_API}${path}`, {
+  const request = {
     ...init,
     next: { revalidate: 60 },
-  });
+  };
+  let response: Response;
+  try {
+    response = await fetch(`${SERVER_API}${path}`, request);
+  } catch (cause) {
+    if (SERVER_API === PUBLIC_API) throw cause;
+    response = await fetch(`${PUBLIC_API}${path}`, request);
+  }
   return parseResponse<T>(response);
 }
 
 export async function catalog(
   params: URLSearchParams,
-): Promise<Paginated<Resource>> {
+): Promise<Paginated<Resource> & { error?: boolean }> {
   try {
     return await publicApi<Paginated<Resource>>(
       `/resources?${params.toString()}`,
@@ -96,6 +103,7 @@ export async function catalog(
     return {
       items: [],
       pagination: { page: 1, limit: 12, total: 0, pages: 0 },
+      error: true,
     };
   }
 }

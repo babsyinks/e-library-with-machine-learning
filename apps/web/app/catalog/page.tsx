@@ -144,8 +144,14 @@ export default async function CatalogPage({
         <section className="catalog-results">
           <div className="results-bar">
             <p>
-              <strong>{result.pagination.total}</strong>{" "}
-              {result.pagination.total === 1 ? "resource" : "resources"} found
+              {result.error ? (
+                <strong>Search is temporarily unavailable</strong>
+              ) : (
+                <>
+                  <strong>{result.pagination.total}</strong>{" "}
+                  {result.pagination.total === 1 ? "resource" : "resources"} found
+                </>
+              )}
             </p>
             <span>
               Page {currentPage} of {Math.max(result.pagination.pages, 1)}
@@ -159,8 +165,12 @@ export default async function CatalogPage({
             </div>
           ) : (
             <EmptyState
-              title="No matching resources"
-              message="Try a broader phrase or remove one of the filters."
+              title={result.error ? "Catalog search unavailable" : "No matching resources"}
+              message={
+                result.error
+                  ? "The catalog could not be reached. Please try again shortly."
+                  : "Try a broader phrase or remove one of the filters."
+              }
             />
           )}
           {result.pagination.pages > 1 && (

@@ -6,11 +6,32 @@ from time import monotonic
 
 import numpy as np
 from scipy.sparse import csr_matrix
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from .config import settings
 from .repository import CatalogItem, Interaction, Repository
+
+MIN_SIMILARITY = 0.08
+GENERIC_CATALOG_TERMS = {
+    "book",
+    "computer",
+    "books",
+    "department",
+    "definitive",
+    "edition",
+    "guide",
+    "handbook",
+    "introduction",
+    "manual",
+    "practical",
+    "report",
+    "science",
+    "study",
+    "textbook",
+    "annual",
+    "using",
+}
 
 
 @dataclass(frozen=True)
@@ -31,6 +52,8 @@ class ModelStore:
         self.index: dict[str, int] = {}
         self.vectorizer: TfidfVectorizer | None = None
         self.matrix: csr_matrix | None = None
+        self.similarity_vectorizer: TfidfVectorizer | None = None
+        self.similarity_matrix: csr_matrix | None = None
 
     def load(self, force: bool = False) -> None:
         with self._lock:
@@ -42,18 +65,31 @@ class ModelStore:
             if not items:
                 self.vectorizer = None
                 self.matrix = None
+                self.similarity_vectorizer = None
+                self.similarity_matrix = None
                 self._loaded_at = monotonic()
                 return
-            vectorizer = TfidfVectorizer(
-                stop_words="english",
-                ngram_range=(1, 2),
-                min_df=1,
-                max_features=50_000,
-                sublinear_tf=True,
-            )
-            self.matrix = vectorizer.fit_transform(item.document for item in items).tocsr()
+            vectorizer = self._vectorizer()
+            self.matrix = vectorizer.fit_transform(
+                item.document for item in items
+            ).tocsr()
             self.vectorizer = vectorizer
+            similarity_vectorizer = self._vectorizer()
+            self.similarity_matrix = similarity_vectorizer.fit_transform(
+                item.similarity_document for item in items
+            ).tocsr()
+            self.similarity_vectorizer = similarity_vectorizer
             self._loaded_at = monotonic()
+
+    @staticmethod
+    def _vectorizer() -> TfidfVectorizer:
+        return TfidfVectorizer(
+            stop_words=sorted(ENGLISH_STOP_WORDS | GENERIC_CATALOG_TERMS),
+            ngram_range=(1, 2),
+            min_df=1,
+            max_features=50_000,
+            sublinear_tf=True,
+        )
 
 
 class Recommender:
@@ -122,26 +158,69 @@ class Recommender:
 
     def similar(self, resource_id: str, limit: int) -> list[ScoredItem] | None:
         self.model.load()
-        if self.model.matrix is None or resource_id not in self.model.index:
+        if self.model.similarity_matrix is None or resource_id not in self.model.index:
             return None
         source_index = self.model.index[resource_id]
-        scores = cosine_similarity(self.model.matrix[source_index], self.model.matrix).ravel()
+        scores = cosine_similarity(
+            self.model.similarity_matrix[source_index],
+            self.model.similarity_matrix,
+        ).ravel()
         results: list[ScoredItem] = []
         source = self.model.items[source_index]
         for index in np.argsort(scores)[::-1]:
             item = self.model.items[int(index)]
-            if item.resource_id == resource_id or scores[index] <= 0:
+            if item.resource_id == resource_id:
+                continue
+            related, signals = self._relationship(source, item, float(scores[index]))
+            if not related:
                 continue
             results.append(
                 ScoredItem(
                     item.resource_id,
                     round(float(scores[index]), 6),
-                    f"Shares topics and keywords with “{source.title}”",
+                    f"Related by {', '.join(signals)} to “{source.title}”",
                 )
             )
             if len(results) == limit:
                 break
         return results
+
+    def _relationship(
+        self,
+        source: CatalogItem,
+        candidate: CatalogItem,
+        score: float,
+    ) -> tuple[bool, list[str]]:
+        if self.model.similarity_vectorizer is None:
+            return False, []
+        source_tags = {tag.strip().casefold() for tag in source.tags if tag.strip()}
+        candidate_tags = {tag.strip().casefold() for tag in candidate.tags if tag.strip()}
+        shared_tags = source_tags & candidate_tags
+        analyze = self.model.similarity_vectorizer.build_analyzer()
+        source_terms = set(analyze(" ".join([source.title, *source.tags])))
+        candidate_terms = set(analyze(" ".join([candidate.title, *candidate.tags])))
+        shared_terms = source_terms & candidate_terms
+        same_author = (
+            bool(source.author.strip())
+            and source.author.strip().casefold() == candidate.author.strip().casefold()
+        )
+        same_category = (
+            bool(source.category.strip())
+            and source.category.strip().casefold()
+            == candidate.category.strip().casefold()
+        )
+
+        signals: list[str] = []
+        if shared_tags:
+            signals.append("shared tags")
+        elif shared_terms and score >= MIN_SIMILARITY:
+            signals.append("topic overlap")
+        if same_author and score >= MIN_SIMILARITY:
+            signals.append("author")
+        related = bool(signals)
+        if related and same_category:
+            signals.append("category")
+        return related, signals
 
     def popular(self, limit: int, department: str | None = None) -> list[ScoredItem]:
         self.model.load()

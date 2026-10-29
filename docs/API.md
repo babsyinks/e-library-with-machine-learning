@@ -13,7 +13,9 @@ running. All endpoints are prefixed `/api`.
 | Categories      | `POST/PATCH/DELETE /categories[/:id]`                                                                          | Librarian, Admin                            |
 | Catalog         | `GET /resources`                                                                                               | Public                                      |
 | Resource        | `GET /resources/:id`, `POST /:id/access`, `POST /:id/saved`                                                    | Authenticated                               |
+| Resource removal | `DELETE /resources/:id`                                                                                       | Uploader; Librarian, Admin for any resource |
 | Upload          | `POST /resources`, `PATCH /:id`, `POST /:id/version`, `GET /mine`                                              | Staff, Admin                                |
+| Management      | `GET /resources/manage`                                                                                       | Librarian, Admin                            |
 | Review          | `GET /resources/review-queue`, `POST /:id/approve`, `POST /:id/reject`                                         | Librarian, Admin (staff see own queue only) |
 | Personalization | `GET /recommendations/for-me`, `GET /recommendations/similar/:id`                                              | Authenticated                               |
 | Evaluation      | `POST /recommendations/evaluate`                                                                               | Admin                                       |
@@ -27,3 +29,5 @@ Catalog query parameters: `q`, `categoryId`, `resourceType`, `year`,
 
 Uploads use `multipart/form-data` with field `file`. Other mutation bodies use
 JSON. The access response contains a URL that expires after 300 seconds.
+Deleting a resource archives it, removing it from the active catalog while
+retaining its audit history and stored files.

@@ -14,13 +14,16 @@ import {
   GraduationCap,
   Share2,
   Sparkles,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ProtectedPage } from "@/components/protected-page";
 import { ResourceCard } from "@/components/resource-card";
 import { Toast } from "@/components/toast";
+import { useAuth } from "@/components/auth-provider";
 import { apiFetch, ApiError } from "@/lib/api";
 import { fileSize, resourceTypeLabel } from "@/lib/format";
 import { Resource } from "@/lib/types";
@@ -28,11 +31,13 @@ import { Resource } from "@/lib/types";
 export default function ResourcePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
   const [resource, setResource] = useState<Resource>();
   const [similar, setSimilar] = useState<Resource[]>([]);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [accessing, setAccessing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const load = useCallback(() => {
     Promise.all([
       apiFetch<Resource>(`/resources/${id}`),
@@ -79,6 +84,20 @@ export default function ResourcePage() {
     await navigator.clipboard.writeText(window.location.href);
     setToast("Resource link copied");
   }
+  async function removeResource() {
+    try {
+      await apiFetch(`/resources/${id}`, { method: "DELETE" });
+      router.push("/catalog");
+    } catch (cause) {
+      throw new Error(
+        cause instanceof ApiError ? cause.message : "Could not delete resource",
+      );
+    }
+  }
+  const canDelete =
+    user?.role === "ADMIN" ||
+    user?.role === "LIBRARIAN" ||
+    Boolean(user && resource?.uploadedBy?.id === user.id);
   return (
     <ProtectedPage>
       {error ? (
@@ -123,7 +142,7 @@ export default function ResourcePage() {
                       className="button button-secondary"
                       onClick={() => void access(true)}
                     >
-                      <Eye size={17} /> Preview PDF
+                      <Eye size={17} /> Preview first 5 pages
                     </button>
                   )}
                   <div>
@@ -139,6 +158,14 @@ export default function ResourcePage() {
                       <span>Share</span>
                     </button>
                   </div>
+                  {canDelete && (
+                    <button
+                      className="button button-danger"
+                      onClick={() => setConfirmDelete(true)}
+                    >
+                      <Trash2 size={17} /> Delete resource
+                    </button>
+                  )}
                 </div>
               </aside>
               <article className="resource-info">
@@ -228,8 +255,22 @@ export default function ResourcePage() {
           {toast && (
             <Toast
               message={toast}
-              kind={toast.includes("unavailable") ? "error" : "success"}
+              kind={
+                toast.includes("unavailable") ||
+                toast.includes("Could not delete")
+                  ? "error"
+                  : "success"
+              }
               onClose={() => setToast("")}
+            />
+          )}
+          {confirmDelete && (
+            <ConfirmDialog
+              title="Delete this resource?"
+              description={`“${resource.title}” will be archived and removed from the catalog. Its files and audit history will be retained.`}
+              confirmLabel="Delete resource"
+              onConfirm={removeResource}
+              onCancel={() => setConfirmDelete(false)}
             />
           )}
         </div>
